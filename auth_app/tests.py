@@ -1,10 +1,11 @@
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
-# from django.contrib.auth.tokens import default_token_generator
-# from django.utils.http import urlsafe_base64_encode
-# from django.utils.encoding import force_bytes
-# from urllib import response
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from urllib import response
+
 
 class AuthAppPositiveTestCase(TestCase):
     def setUp(self):
@@ -21,7 +22,7 @@ class AuthAppPositiveTestCase(TestCase):
         self.refresh_url = reverse("token_refresh")
         self.logout_url = reverse("logout")
         self.password_reset_url = reverse("password_reset")
-        
+
     def test_user_registration(self):
         response = self.client.post(self.registration_url, self.user_data)
 
@@ -29,7 +30,8 @@ class AuthAppPositiveTestCase(TestCase):
         self.assertIn("user", response.data)
         self.assertIn("token", response.data)
 
-        self.assertEqual(response.data["user"]["email"], self.user_data["email"])
+        self.assertEqual(response.data["user"]
+                         ["email"], self.user_data["email"])
         self.assertTrue(len(response.data["token"]) > 0)
         self.assertIsInstance(response.data["token"], str)
 
@@ -58,3 +60,97 @@ class AuthAppPositiveTestCase(TestCase):
         self.assertIn("access_token", response.cookies)
         self.assertIn("refresh_token", response.cookies)
 
+    def test_user_logout(self):
+        self.client.post(self.registration_url, self.user_data)
+        User = get_user_model()
+        user = User.objects.get(email=self.user_data["email"])
+        user.is_active = True
+        user.save()
+
+        self.client.post(self.login_url, {
+            "email": self.user_data["email"],
+            "password": self.user_data["password"]
+        })
+
+        response = self.client.post(self.logout_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.cookies['access_token'].value, "")
+        self.assertEqual(response.cookies['refresh_token'].value, "")
+
+    def test_token_refresh(self):
+        self.client.post(self.registration_url, self.user_data)
+        User = get_user_model()
+        user = User.objects.get(email=self.user_data["email"])
+        user.is_active = True
+        user.save()
+
+        login_data = {
+            "email": self.user_data["email"],
+            "password": self.user_data["password"]
+        }
+        self.client.post(self.login_url, login_data)
+
+        response = self.client.post(self.refresh_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access_token", response.cookies)
+
+    def test_password_reset(self):
+        self.client.post(self.registration_url, self.user_data)
+        User = get_user_model()
+        user = User.objects.get(email=self.user_data["email"])
+        user.is_active = True
+        user.save()
+
+        self.client.post(self.login_url, {
+            "email": self.user_data["email"],
+            "password": self.user_data["password"]
+        })
+
+        password_reset_url = reverse("password_reset")
+        reset_data = {"email": self.user_data["email"]}
+        response = self.client.post(password_reset_url, reset_data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["detail"],
+                         "An email has been sent to reset your password.")
+
+    def test_password_reset_confirm(self):
+        self.client.post(self.registration_url, self.user_data)
+        User = get_user_model()
+        user = User.objects.get(email=self.user_data["email"])
+        user.is_active = True
+        user.save()
+
+        self.client.post(self.login_url, {
+            "email": self.user_data["email"],
+            "password": self.user_data["password"]
+        })
+
+        password_reset_url = reverse("password_reset")
+        reset_data = {"email": self.user_data["email"]}
+        self.client.post(password_reset_url, reset_data)
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+
+        password_reset_confirm_url = reverse(
+            "password_confirm", args=[uid, token])
+        new_password_data = {
+            "new_password": "newtestpassword123",
+            "confirmed_password": "newtestpassword123"
+        }
+        response = self.client.post(
+            password_reset_confirm_url, new_password_data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["detail"],
+                         "Your Password has been successfully reset.")
+
+        login_data = {
+            "email": self.user_data["email"],
+            "password": "newtestpassword123"
+        }
+        login_response = self.client.post(self.login_url, login_data)
+        self.assertEqual(login_response.status_code, 200)
