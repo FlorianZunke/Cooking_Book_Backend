@@ -85,16 +85,19 @@ class AuthAppPositiveTestCase(TestCase):
         user.is_active = True
         user.save()
 
-        login_data = {
+        login_response = self.client.post(self.login_url, {
             "email": self.user_data["email"],
             "password": self.user_data["password"]
-        }
-        self.client.post(self.login_url, login_data)
+        })
+
+        original_access_token = login_response.cookies["access_token"].value
 
         response = self.client.post(self.refresh_url)
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("access_token", response.cookies)
+        self.assertNotEqual(response.cookies["access_token"].value, original_access_token)
+        self.assertEqual(response.data["detail"], "Token refreshed")
 
     def test_password_reset(self):
         self.client.post(self.registration_url, self.user_data)
